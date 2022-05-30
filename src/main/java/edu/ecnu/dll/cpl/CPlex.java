@@ -1,5 +1,6 @@
 package edu.ecnu.dll.cpl;
 
+import edu.ecnu.dll.cpl.expection.CPLException;
 import edu.ecnu.dll.tools.collection.ArraysUtils;
 import edu.ecnu.dll.tools.collection.SetUtils;
 import edu.ecnu.dll.tools.io.print.MyPrint;
@@ -12,6 +13,9 @@ public class CPlex {
     private List<Variable> variableList = null;
     private List<Constrain> constrainList = null;
     private Goal goal = null;
+
+    private Boolean solveFlag;
+
 //    private Integer realVariableSize = null;
 
     private Double[][] augmentCoefficientGoalMatrix = null;
@@ -46,6 +50,7 @@ public class CPlex {
         Double tempValue;
         for (int i = 0; i < this.constrainList.size(); i++) {
             tempConstrain = this.constrainList.get(i);
+            // 当不等式为大于等于时，由于添加-x会导致系数化1时右侧再次变为负数。因此需要添加额外正的基变量。
             // 填写系数
             for (Map.Entry<Variable, Double> entry : tempConstrain.getCombinationMap().entrySet()) {
                 tempVariable = entry.getKey();
@@ -58,14 +63,17 @@ public class CPlex {
             tempConstrainType = tempConstrain.getConstrainType();
 
             if (!tempConstrainType.equals(ConstrainType.EQ)) {
-                this.basicVariableArray[i] = extraVariableIndex;
                 if (tempConstrainType.equals(ConstrainType.LEQ)) {
                     // 小于等于，则新加变量系数为正
                     this.augmentCoefficientGoalMatrix[i][extraVariableIndex] = 1.0;
                 } else {
-                    // 大于等于，则新加变量系数为负
+                    // 大于等于，则新加两个变量一个系数为负一个系数为正，正的作为基变量 // todo
                     this.augmentCoefficientGoalMatrix[i][extraVariableIndex] = -1.0;
+                    this.augmentCoefficientGoalMatrix[i][++extraVariableIndex] = 1.0;
+
+//                    shrinkMatrixRow(i, -1.0);
                 }
+                this.basicVariableArray[i] = extraVariableIndex;
                 extraVariableIndex ++;
             }
 
@@ -107,11 +115,15 @@ public class CPlex {
 
     public void init() {
 //        this.realVariableSize = variableList.size();
-        // 找出不等式的个数
+        // 找出不等式加权的个数，如果为小于等于则记为1，大于等于记为2
         int notEqualSize = 0;
+        Integer tempConstrainType;
         for (Constrain constrain : this.constrainList) {
-            if (!constrain.getConstrainType().equals(ConstrainType.EQ)) {
+            tempConstrainType = constrain.getConstrainType();
+            if (tempConstrainType.equals(ConstrainType.LEQ)) {
                 ++ notEqualSize;
+            } else if (tempConstrainType.equals(ConstrainType.GEQ)) {
+                notEqualSize += 2;
             }
         }
         // 初始化增广系数矩阵
@@ -140,7 +152,21 @@ public class CPlex {
     }
 
     public void addConstrain(Constrain constrain) {
-        this.constrainList.add(constrain);
+        Constrain newConstrain = constrain;
+        if (constrain.getRightValue() < 0.0) {
+            // 为了保证初始解都不是负数，需要将约束的右侧都化为非负值。
+            Variable tempVariable;
+            Double tempValue;
+            newConstrain = new Constrain();
+            for (Map.Entry<Variable, Double> entry : constrain.getCombinationMap().entrySet()) {
+                tempVariable = entry.getKey();
+                tempValue = - entry.getValue();
+                newConstrain.putConstrainElement(tempVariable, tempValue);
+            }
+            newConstrain.setConstrainType(ConstrainType.reverse(constrain.getConstrainType()));
+            newConstrain.setRightValue(-constrain.getRightValue());
+        }
+        this.constrainList.add(newConstrain);
     }
 
     public void setGoal(Goal goal) {
@@ -153,7 +179,7 @@ public class CPlex {
         for (int i = 0; i < ratio.length; i++) {
             ratio[i] = this.augmentCoefficientGoalMatrix[i][bArrayIndex] / this.augmentCoefficientGoalMatrix[i][innerBasicIndex];
         }
-        int positionInBasicVariableArray = ArraysUtils.getDoubleMinValueIndex(ratio);
+        int positionInBasicVariableArray = ArraysUtils.getDoubleMinValueIndexWithMinimalValueConstrain(ratio,0.0);
         return positionInBasicVariableArray;
     }
 
@@ -191,7 +217,7 @@ public class CPlex {
      * 单次迭代，如果不可迭代返回false，如果可迭代，迭代后返回true
      * @return
      */
-    private boolean solveIterate() {
+    private boolean solveIterate() throws CPLException {
         // 1. 获取入基变量 (获取目标变量系数中非基变量的最大值对应的变量坐标)
         int cArrayIndex = this.augmentCoefficientGoalMatrix.length - 1;
         Integer goIntoVariableIndex = ArraysUtils.getDoubleMaxValueIndexInGivenIndexSet(this.augmentCoefficientGoalMatrix[cArrayIndex], this.normalVariableSet);
@@ -200,6 +226,9 @@ public class CPlex {
         }
         // 2. 获取出基变量 (rightConst和入基变量系数比值最小的那个)
         int goOutVariableIndexPosition = getOuterBasicVariableIndex(goIntoVariableIndex);
+        if (goOutVariableIndexPosition < 0) {
+            throw new CPLException("There is no result!");
+        }
         Integer goOutVariableIndex = this.basicVariableArray[goOutVariableIndexPosition];
         // 3. 替换出基变量为入基变量
         this.basicVariableArray[goOutVariableIndexPosition] = goIntoVariableIndex;
@@ -207,6 +236,7 @@ public class CPlex {
         this.normalVariableSet.add(goOutVariableIndex);
 
         // 初等变换将新的基变量所在列化为单位向量
+        this.shrinkMatrixRow(goOutVariableIndexPosition, this.augmentCoefficientGoalMatrix[goOutVariableIndexPosition][goIntoVariableIndex]);
         this.changeGoIntoVariableVectorToUnitVector(goOutVariableIndexPosition, goIntoVariableIndex);
         return true;
 
@@ -214,9 +244,15 @@ public class CPlex {
 
     public void solve() {
         boolean statues;
-        do {
-            statues = solveIterate();
-        } while (statues);
+        try {
+            do {
+                statues = solveIterate();
+            } while (statues);
+            solveFlag = true;
+        } catch (CPLException e) {
+            solveFlag = false;
+//            e.printStackTrace();
+        }
 
     }
 
@@ -232,10 +268,13 @@ public class CPlex {
     public Map<Variable, Double> getFinalBasicVariableValuePair() {
         Map<Variable, Double> resultMap = new TreeMap<>();
         Integer index;
+        Variable variable;
         int bArrayIndex = this.augmentCoefficientGoalMatrix[0].length-1;
         for (int i = 0; i < this.basicVariableArray.length; i++) {
             index = this.basicVariableArray[i];
-            resultMap.put(this.variableList.get(index), this.augmentCoefficientGoalMatrix[i][bArrayIndex]);
+            if (index < this.variableList.size()) {
+                resultMap.put(this.variableList.get(index), this.augmentCoefficientGoalMatrix[i][bArrayIndex]);
+            }
         }
         return resultMap;
     }
@@ -245,56 +284,6 @@ public class CPlex {
         int colIndex = this.augmentCoefficientGoalMatrix[0].length - 1;
         return this.augmentCoefficientGoalMatrix[rowIndex][colIndex];
     }
-
-    public static void main(String[] args) {
-        CPlex cPlex = new CPlex();
-        List<Variable> variables = cPlex.addAndReturnVariableList(4);
-
-        Goal goal = new Goal();
-        goal.setGoalType(GoalType.MIN);
-        goal.putGoalElement(variables.get(0), -1.0);
-        goal.putGoalElement(variables.get(1), -1.0);
-        cPlex.setGoal(goal);
-
-        Constrain constrain = new Constrain();
-        constrain.setConstrainType(ConstrainType.EQ);
-        constrain.putConstrainElement(variables.get(0), 2.0);
-        constrain.putConstrainElement(variables.get(1), 1.0);
-        constrain.putConstrainElement(variables.get(2), 1.0);
-        constrain.setRightValue(12.0);
-        cPlex.addConstrain(constrain);
-
-        constrain = new Constrain();
-        constrain.setConstrainType(ConstrainType.EQ);
-        constrain.putConstrainElement(variables.get(0), 1.0);
-        constrain.putConstrainElement(variables.get(1), 2.0);
-        constrain.putConstrainElement(variables.get(3), 1.0);
-        constrain.setRightValue(9.0);
-        cPlex.addConstrain(constrain);
-
-        cPlex.init();
-        cPlex.solve();
-
-        Map<Variable, Double> valuePair = cPlex.getFinalBasicVariableValuePair();
-        MyPrint.showMap(valuePair);
-        System.out.println(cPlex.getResult());
-
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
