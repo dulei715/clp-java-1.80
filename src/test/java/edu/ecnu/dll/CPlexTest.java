@@ -1,6 +1,7 @@
 package edu.ecnu.dll;
 
 import edu.ecnu.dll.cpl.*;
+import edu.ecnu.dll.cpl.expection.CPLException;
 import edu.ecnu.dll.tools.io.print.MyPrint;
 import org.junit.Test;
 
@@ -9,7 +10,7 @@ import java.util.Map;
 
 public class CPlexTest {
     @Test
-    public void fun1() {
+    public void fun1() throws CPLException {
         CPlex cPlex = new CPlex();
         List<Variable> variables = cPlex.addAndReturnVariableList(4);
 
@@ -44,7 +45,7 @@ public class CPlexTest {
     }
 
     @Test
-    public void fun2() {
+    public void fun2() throws CPLException {
         CPlex cPlex = new CPlex();
         List<Variable> variables = cPlex.addAndReturnVariableList(4);
 
@@ -89,7 +90,7 @@ public class CPlexTest {
     }
 
     @Test
-    public void fun3() {
+    public void fun3() throws CPLException {
         CPlex cPlex = new CPlex();
         List<Variable> variables = cPlex.addAndReturnVariableList(3);
 
@@ -122,6 +123,74 @@ public class CPlexTest {
         constrain.putConstrainElement(variables.get(2), -2.0);
         constrain.setRightValue(1.0);
         cPlex.addConstrain(constrain);
+
+        cPlex.init();
+        cPlex.solve();
+
+        Map<Variable, Double> valuePair = cPlex.getFinalBasicVariableValuePair();
+        MyPrint.showMap(valuePair);
+        System.out.println(cPlex.getResult());
+    }
+
+    @Test
+    public void fun4() throws CPLException {
+        CPlex cPlex = new CPlex();
+        List<Variable> variables = cPlex.addAndReturnVariableList(2);
+
+        Goal goal = new Goal();
+        goal.setGoalType(GoalType.MAX);
+        goal.putGoalElement(variables.get(0), 3.0);
+        goal.putGoalElement(variables.get(1), 4.0);
+        cPlex.setGoal(goal);
+
+        Constrain constrain = new Constrain();
+        constrain.setConstrainType(ConstrainType.LEQ);
+        constrain.putConstrainElement(variables.get(0), 2.0);
+        constrain.putConstrainElement(variables.get(1), 1.0);
+        constrain.setRightValue(40.0);
+        cPlex.addConstrain(constrain);
+
+        constrain = new Constrain();
+        constrain.setConstrainType(ConstrainType.LEQ);
+        constrain.putConstrainElement(variables.get(0), 1.0);
+        constrain.putConstrainElement(variables.get(1), 3.0);
+        constrain.setRightValue(30.0);
+        cPlex.addConstrain(constrain);
+
+
+        cPlex.init();
+        cPlex.solve();
+
+        Map<Variable, Double> valuePair = cPlex.getFinalBasicVariableValuePair();
+        MyPrint.showMap(valuePair);
+        System.out.println(cPlex.getResult());
+    }
+
+    @Test
+    public void fun5() throws CPLException {
+        CPlex cPlex = new CPlex();
+        List<Variable> variables = cPlex.addAndReturnVariableList(2);
+
+        Goal goal = new Goal();
+        goal.setGoalType(GoalType.MIN);
+        goal.putGoalElement(variables.get(0), -3.0);
+        goal.putGoalElement(variables.get(1), -4.0);
+        cPlex.setGoal(goal);
+
+        Constrain constrain = new Constrain();
+        constrain.setConstrainType(ConstrainType.LEQ);
+        constrain.putConstrainElement(variables.get(0), 2.0);
+        constrain.putConstrainElement(variables.get(1), 1.0);
+        constrain.setRightValue(40.0);
+        cPlex.addConstrain(constrain);
+
+        constrain = new Constrain();
+        constrain.setConstrainType(ConstrainType.LEQ);
+        constrain.putConstrainElement(variables.get(0), 1.0);
+        constrain.putConstrainElement(variables.get(1), 3.0);
+        constrain.setRightValue(30.0);
+        cPlex.addConstrain(constrain);
+
 
         cPlex.init();
         cPlex.solve();

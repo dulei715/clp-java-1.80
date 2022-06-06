@@ -37,6 +37,15 @@ public class Goal {
         return goalType;
     }
 
+    public void normalizeToMaxEqualGoal() {
+        if (this.goalType.equals(GoalType.MIN)) {
+            for (Map.Entry<Variable, Double> entry : combinationMap.entrySet()) {
+                entry.setValue(-entry.getValue());
+            }
+            this.goalType = GoalType.MAX;
+        }
+    }
+
     @Override
     public String toString() {
         StringBuilder stringBuilder = new StringBuilder();

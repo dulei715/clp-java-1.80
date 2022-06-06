@@ -1,10 +1,10 @@
 package edu.ecnu.dll.cpl;
 
 import edu.ecnu.dll.cpl.expection.CPLException;
+import edu.ecnu.dll.cpl.struct.BasicVariableEntry;
+import edu.ecnu.dll.cpl.struct.ExtendDouble;
 import edu.ecnu.dll.tools.collection.ArraysUtils;
 import edu.ecnu.dll.tools.collection.SetUtils;
-import edu.ecnu.dll.tools.io.print.MyPrint;
-import org.apache.commons.math3.linear.MatrixUtils;
 
 import java.util.*;
 
@@ -12,20 +12,24 @@ public class CPlex {
 
     private List<Variable> variableList = null;
     private List<Constrain> constrainList = null;
+    // 保证这里的 goal 被形式化为 MAX 形式
     private Goal goal = null;
+    private Map.Entry<Integer, ExtendDouble>[] goalVariableEntryArray = null;
 
     private Boolean solveFlag;
 
 //    private Integer realVariableSize = null;
 
     private Double[][] augmentCoefficientGoalMatrix = null;
+    private ExtendDouble[] judgementNumberArray = null;
 
     // 有序地记录基变量的索引
+//    private Integer[] basicVariableArray = null;
+//    private ExtendDouble[] basicVariableParameterArray = null;
+    private Map.Entry<Integer, ExtendDouble>[] basicVariableArray = null;
 
-    private Integer[] basicVariableArray = null;
     // 记录非基变量的索引
-
-    private Set<Integer> normalVariableSet = null;
+    private Set<Map.Entry<Integer, ExtendDouble>> normalVariableSet = null;
 
 
 
@@ -40,14 +44,33 @@ public class CPlex {
      */
     private void initFirstCoefficientMatrixAndBasicVariableArray(int notEqualSize) {
         int extraVariableIndex = variableList.size();
-        this.basicVariableArray = new Integer[this.constrainList.size()];
-//        this.normalVariableSet = new HashSet<>();
-        this.augmentCoefficientGoalMatrix = new Double[this.constrainList.size() + 1][this.variableList.size() + notEqualSize + 1];
+        this.basicVariableArray = new BasicVariableEntry[this.constrainList.size()];
+
+//        this.augmentCoefficientGoalMatrix = new Double[this.constrainList.size() + 1][this.variableList.size() + notEqualSize + 1];
+        // 这里假设为增广矩阵 todo:xxx
+        int lineNum = this.variableList.size() + notEqualSize + 1;
+        this.augmentCoefficientGoalMatrix = new Double[this.constrainList.size()][lineNum];
+        this.judgementNumberArray = new ExtendDouble[lineNum];
+        // 这里的goalParameterArray多了一个元素，初始化为0
+        this.goalVariableEntryArray = new BasicVariableEntry[lineNum];
+
+        // 初始化
         ArraysUtils.setTwoDimensionalDoubleArray(this.augmentCoefficientGoalMatrix, 0.0);
+        ExtendDouble.initializeExtendDoubleArray(this.judgementNumberArray);
+        BasicVariableEntry.initializeExtendDoubleArray(this.goalVariableEntryArray);
+
         Integer tempConstrainType;
         Constrain tempConstrain;
         Variable tempVariable;
         Double tempValue;
+
+//        double flag = 1; // todo: 从根源上形式化为求最大值的优化
+////        int cArrayIndex = this.augmentCoefficientGoalMatrix.length - 1;
+//        if (this.goal.getGoalType().equals(GoalType.MIN)) {
+//            flag = -1;
+//        }
+
+        ExtendDouble tempExtendDouble;
         for (int i = 0; i < this.constrainList.size(); i++) {
             tempConstrain = this.constrainList.get(i);
             // 当不等式为大于等于时，由于添加-x会导致系数化1时右侧再次变为负数。因此需要添加额外正的基变量。
@@ -63,57 +86,91 @@ public class CPlex {
             tempConstrainType = tempConstrain.getConstrainType();
 
             if (!tempConstrainType.equals(ConstrainType.EQ)) {
+                // 不是等式，表示一定有一个新加变量，可以作为初始基变量，该变量要么系数为0要么为-M
                 if (tempConstrainType.equals(ConstrainType.LEQ)) {
                     // 小于等于，则新加变量系数为正
                     this.augmentCoefficientGoalMatrix[i][extraVariableIndex] = 1.0;
+//                    tempExtendDouble = ExtendDouble.valueOf(0.0);
                 } else {
                     // 大于等于，则新加两个变量一个系数为负一个系数为正，正的作为基变量 // todo
                     this.augmentCoefficientGoalMatrix[i][extraVariableIndex] = -1.0;
                     this.augmentCoefficientGoalMatrix[i][++extraVariableIndex] = 1.0;
+                    tempExtendDouble = new ExtendDouble(-1.0, 0.0);
+//                  // 提前将新加变量需要系数取值为负无穷大的设置好
+//                    this.goalVariableEntryArray[extraVariableIndex] = new ExtendDouble(-1.0, 0.0);
+                    this.goalVariableEntryArray[extraVariableIndex].setValue(tempExtendDouble);
 
-//                    shrinkMatrixRow(i, -1.0);
                 }
-                this.basicVariableArray[i] = extraVariableIndex;
+//                this.basicVariableArray[i] = new BasicVariableEntry(extraVariableIndex, tempExtendDouble);
+                this.basicVariableArray[i] = this.goalVariableEntryArray[extraVariableIndex];
                 extraVariableIndex ++;
             }
 
         }
-        double flag = 1;
-        int cArrayIndex = this.augmentCoefficientGoalMatrix.length - 1;
-        if (this.goal.getGoalType().equals(GoalType.MIN)) {
-            flag = -1;
-        }
+
+        // 设置其他的goalParameterArray元素
         for (Map.Entry<Variable, Double> entry : this.goal.getCombinationMap().entrySet()) {
             tempVariable = entry.getKey();
             tempValue = entry.getValue();
-            this.augmentCoefficientGoalMatrix[cArrayIndex][tempVariable.getIndex()] = tempValue * flag;
+//            this.goalVariableEntryArray[tempVariable.getIndex()] = ExtendDouble.valueOf(tempValue);
+            this.goalVariableEntryArray[tempVariable.getIndex()].setValue(ExtendDouble.valueOf(tempValue));
         }
+
 
     }
 
-    private void initSecondEquationBasicVariablesArray() {
+    private void initSecondEquationBasicVariablesArray() throws CPLException {
         int endIndex = variableList.size() - 1;
         int tempNewInnerVariableIndex;
         double tempNewInnerVariableCoefficient;
         for (int i = 0; i < this.constrainList.size(); i++) {
             if (this.constrainList.get(i).getConstrainType().equals(ConstrainType.EQ)) {
-                // 找到当前非0系数变量
+                // 找到当前正系数变量
                 tempNewInnerVariableIndex = ArraysUtils.getFirstElementIndexWithValueMoreThanGivenValue(this.augmentCoefficientGoalMatrix[i], 0, endIndex,  0.0);
+                if (tempNewInnerVariableIndex < 0) {
+                    // 说明该等式矛盾，原线性规划无解
+                    throw new CPLException("Conflict for Equation " + String.valueOf(i) + "s ");
+                }
                 tempNewInnerVariableCoefficient = this.augmentCoefficientGoalMatrix[i][tempNewInnerVariableIndex];
                 // 初等变化将改变量化为1
                 shrinkMatrixRow(i, tempNewInnerVariableCoefficient);
                 changeGoIntoVariableVectorToUnitVector(i, tempNewInnerVariableIndex);
-                this.basicVariableArray[i] = tempNewInnerVariableIndex;
+//                this.basicVariableArray[i] = tempNewInnerVariableIndex;
+//                this.basicVariableArray[i] = new BasicVariableEntry(tempNewInnerVariableIndex, this.goalVariableEntryArray[tempNewInnerVariableIndex]);
+                this.basicVariableArray[i] = this.goalVariableEntryArray[tempNewInnerVariableIndex];
             }
         }
         this.normalVariableSet = new HashSet<>();
-        SetUtils.addSeriesNatualNumber(this.normalVariableSet, 0, endIndex);
+        SetUtils.addSeriesIndexOfGivenData(this.normalVariableSet, this.goalVariableEntryArray, 0, endIndex);
         for (int i = 0; i < this.basicVariableArray.length; i++) {
             this.normalVariableSet.remove(this.basicVariableArray[i]);
         }
+
+
+        // 初始化检验数
+        setAllJudgementValue();
+
     }
 
-    public void init() {
+    private void setJudgmentValue(Integer variableIndex) {
+        Map.Entry<Integer, ExtendDouble> tempBasicVariableEntry;
+        ExtendDouble result = this.goalVariableEntryArray[variableIndex].getValue();
+        ExtendDouble tempValueA;
+        for (int i = 0; i < this.basicVariableArray.length; i++) {
+            tempBasicVariableEntry = this.basicVariableArray[i];
+            tempValueA = tempBasicVariableEntry.getValue().multiple(this.augmentCoefficientGoalMatrix[i][variableIndex]).negative();
+            result = result.add(tempValueA);
+        }
+        this.judgementNumberArray[variableIndex] = result;
+    }
+
+    private void setAllJudgementValue() {
+        for (int i = 0; i < this.judgementNumberArray.length; i++) {
+            setJudgmentValue(i);
+        }
+    }
+
+    public void init() throws CPLException {
 //        this.realVariableSize = variableList.size();
         // 找出不等式加权的个数，如果为小于等于则记为1，大于等于记为2
         int notEqualSize = 0;
@@ -171,6 +228,7 @@ public class CPlex {
 
     public void setGoal(Goal goal) {
         this.goal = goal;
+        this.goal.normalizeToMaxEqualGoal();
     }
 
     private Integer getOuterBasicVariableIndex(Integer innerBasicIndex) {
@@ -198,6 +256,7 @@ public class CPlex {
         }
     }
 
+
     /**
      * 将其他行的基本行元素所在列全部化为0
      * @param basicRowIndex
@@ -219,9 +278,14 @@ public class CPlex {
      */
     private boolean solveIterate() throws CPLException {
         // 1. 获取入基变量 (获取目标变量系数中非基变量的最大值对应的变量坐标)
-        int cArrayIndex = this.augmentCoefficientGoalMatrix.length - 1;
-        Integer goIntoVariableIndex = ArraysUtils.getDoubleMaxValueIndexInGivenIndexSet(this.augmentCoefficientGoalMatrix[cArrayIndex], this.normalVariableSet);
-        if (this.augmentCoefficientGoalMatrix[cArrayIndex][goIntoVariableIndex] < 0) {
+//        int cArrayIndex = this.augmentCoefficientGoalMatrix.length - 1;
+//        Integer goIntoVariableIndex = ArraysUtils.getDoubleMaxValueIndexInGivenIndexSet(this.augmentCoefficientGoalMatrix[cArrayIndex], this.normalVariableSet);
+        // 最后一个是记录的是优化的结果，不是检验数
+        int endIndex = this.judgementNumberArray.length - 2;
+        Integer goIntoVariableIndex = ExtendDouble.getMaxValueIndexInGivenEntrySetWithLimitEndIndex(this.judgementNumberArray, this.goalVariableEntryArray, this.normalVariableSet, endIndex);
+//        Map.Entry<Integer, ExtendDouble> goIntoVariableEntry = new BasicVariableEntry(goIntoVariableIndex, this.goalVariableEntryArray[goIntoVariableIndex]);
+        Map.Entry<Integer, ExtendDouble> goIntoVariableEntry = this.goalVariableEntryArray[goIntoVariableIndex];
+        if (this.judgementNumberArray[goIntoVariableIndex].compareTo(0.0) < 0) {
             return false;
         }
         // 2. 获取出基变量 (rightConst和入基变量系数比值最小的那个)
@@ -229,15 +293,16 @@ public class CPlex {
         if (goOutVariableIndexPosition < 0) {
             throw new CPLException("There is no result!");
         }
-        Integer goOutVariableIndex = this.basicVariableArray[goOutVariableIndexPosition];
+        Map.Entry<Integer, ExtendDouble> goOutVariableEntry = this.basicVariableArray[goOutVariableIndexPosition];
         // 3. 替换出基变量为入基变量
-        this.basicVariableArray[goOutVariableIndexPosition] = goIntoVariableIndex;
-        this.normalVariableSet.remove(goIntoVariableIndex);
-        this.normalVariableSet.add(goOutVariableIndex);
+        this.basicVariableArray[goOutVariableIndexPosition] = goIntoVariableEntry;
+        this.normalVariableSet.remove(goIntoVariableEntry);
+        this.normalVariableSet.add(goOutVariableEntry);
 
-        // 初等变换将新的基变量所在列化为单位向量
+        // 初等变换将新的基变量所在列化为单位向量，并更新检验数
         this.shrinkMatrixRow(goOutVariableIndexPosition, this.augmentCoefficientGoalMatrix[goOutVariableIndexPosition][goIntoVariableIndex]);
         this.changeGoIntoVariableVectorToUnitVector(goOutVariableIndexPosition, goIntoVariableIndex);
+        setAllJudgementValue();
         return true;
 
     }
@@ -271,7 +336,7 @@ public class CPlex {
         Variable variable;
         int bArrayIndex = this.augmentCoefficientGoalMatrix[0].length-1;
         for (int i = 0; i < this.basicVariableArray.length; i++) {
-            index = this.basicVariableArray[i];
+            index = this.basicVariableArray[i].getKey();
             if (index < this.variableList.size()) {
                 resultMap.put(this.variableList.get(index), this.augmentCoefficientGoalMatrix[i][bArrayIndex]);
             }
@@ -280,9 +345,14 @@ public class CPlex {
     }
 
     public Double getResult() {
-        int rowIndex = this.augmentCoefficientGoalMatrix.length - 1;
-        int colIndex = this.augmentCoefficientGoalMatrix[0].length - 1;
-        return this.augmentCoefficientGoalMatrix[rowIndex][colIndex];
+//        int rowIndex = this.augmentCoefficientGoalMatrix.length - 1;
+//        int colIndex = this.augmentCoefficientGoalMatrix[0].length - 1;
+//        return this.augmentCoefficientGoalMatrix[rowIndex][colIndex];
+        ExtendDouble result = this.judgementNumberArray[this.judgementNumberArray.length-1].negative();
+        if (result.isInfinity()) {
+            return Double.MAX_VALUE;
+        }
+        return result.getConstant();
     }
 
 

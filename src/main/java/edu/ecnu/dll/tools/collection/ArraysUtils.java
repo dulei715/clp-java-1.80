@@ -1,6 +1,9 @@
 package edu.ecnu.dll.tools.collection;
 
+import edu.ecnu.dll.cpl.struct.ExtendDouble;
+
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ArraysUtils {
@@ -235,6 +238,15 @@ public class ArraysUtils {
     public static int findIndexOfObject(Integer[] arr, Integer obj) {
         for (int i = 0; i < arr.length; i++) {
             if (arr[i].equals(obj)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public static int findIndexOfObject(Map.Entry<Integer, ExtendDouble>[] arr, Integer obj) {
+        for (int i = 0; i < arr.length; i++) {
+            if (arr[i].getKey().equals(obj)) {
                 return i;
             }
         }
