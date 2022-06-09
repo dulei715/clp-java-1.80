@@ -7,9 +7,8 @@ import edu.ecnu.dll.tools.collection.ArraysUtils;
 import edu.ecnu.dll.tools.collection.SetUtils;
 
 import java.util.*;
-
-@SuppressWarnings("ALL")
-public class CPlex {
+@Deprecated
+public class CPlexBefore {
 
     private List<Variable> variableList = null;
     private List<Constrain> constrainList = null;
@@ -34,22 +33,22 @@ public class CPlex {
 
 
 
-    public CPlex() {
+    public CPlexBefore() {
         this.variableList = new ArrayList<>();
         this.constrainList = new ArrayList<>();
     }
 
     /**
-     * 返回初步初始化的 增广coefficient matrix（选出了等式和不等式的入基变量）
+     * 返回初步初始化的 增广coefficient matrix（只选出了不等式的入基变量，原始等式部分没有选出入基变量）
      * @param notEqualSize
      */
-    private void initFirstCoefficientMatrixAndBasicVariableArray(int equationSize, int notEqualAddingVariableSize) {
+    private void initFirstCoefficientMatrixAndBasicVariableArray(int notEqualSize) {
         int extraVariableIndex = variableList.size();
         this.basicVariableArray = new BasicVariableEntry[this.constrainList.size()];
 
 //        this.augmentCoefficientGoalMatrix = new Double[this.constrainList.size() + 1][this.variableList.size() + notEqualSize + 1];
         // 这里假设为增广矩阵 todo:xxx
-        int lineNum = this.variableList.size() + equationSize + notEqualAddingVariableSize + 1;
+        int lineNum = this.variableList.size() + notEqualSize + 1;
         this.augmentCoefficientGoalMatrix = new Double[this.constrainList.size()][lineNum];
         this.judgementNumberArray = new ExtendDouble[lineNum];
         // 这里的goalParameterArray多了一个元素，初始化为0
@@ -66,6 +65,14 @@ public class CPlex {
         Double tempValue;
 
 
+        // todo: 1. 先处理等式，
+        //          (1) 将等式右侧常数项化为非负
+        //          (2) 找出基变量，并且把该基变量对应的其他等式和不等式的系数化为0
+
+        // todo: 2. 再处理不等式
+        //          (1) 将不等式右侧常数化为非负
+        //          (2) 根据不等式符号，添加相应的基变量
+
         ExtendDouble tempExtendDouble;
         for (int i = 0; i < this.constrainList.size(); i++) {
             tempConstrain = this.constrainList.get(i);
@@ -78,19 +85,10 @@ public class CPlex {
             }
             this.augmentCoefficientGoalMatrix[i][this.augmentCoefficientGoalMatrix[i].length-1] = tempConstrain.getRightValue();
 
-            /*
-                还要填写新增变量系数，分以下3种:
-                1. 等式：新增变量在约束矩阵中系数为1，在目标函数中系数为-M；
-                2. 小于等于：新增变量在约束矩阵中系数为1，在目标函数中系数为0；
-                3. 大于等于：新增变量1在约束矩阵中系数为-1，在目标函数中系数为0，新增变量2在约束矩阵中系数为1，在目标函数中系数为-M
-            */
+            // 如果是不等式，还要填写新增变量系数
             tempConstrainType = tempConstrain.getConstrainTypeValue();
 
-            if (tempConstrainType.equals(ConstrainType.EQ)){
-                this.augmentCoefficientGoalMatrix[i][extraVariableIndex] = 1.0;
-                tempExtendDouble = new ExtendDouble(-1.0, 0.0);
-                this.goalVariableEntryArray[extraVariableIndex].setValue(tempExtendDouble);
-            } else {
+            if (!tempConstrainType.equals(ConstrainType.EQ)) {
                 // 不是等式，表示一定有一个新加变量，可以作为初始基变量，该变量要么系数为0要么为-M
                 if (tempConstrainType.equals(ConstrainType.LEQ)) {
                     // 小于等于，则新加变量系数为正
@@ -102,15 +100,18 @@ public class CPlex {
                     this.augmentCoefficientGoalMatrix[i][++extraVariableIndex] = 1.0;
                     tempExtendDouble = new ExtendDouble(-1.0, 0.0);
 //                  // 提前将新加变量需要系数取值为负无穷大的设置好
+//                    this.goalVariableEntryArray[extraVariableIndex] = new ExtendDouble(-1.0, 0.0);
                     this.goalVariableEntryArray[extraVariableIndex].setValue(tempExtendDouble);
+
                 }
+//                this.basicVariableArray[i] = new BasicVariableEntry(extraVariableIndex, tempExtendDouble);
+                this.basicVariableArray[i] = this.goalVariableEntryArray[extraVariableIndex];
+                extraVariableIndex ++;
             }
-            this.basicVariableArray[i] = this.goalVariableEntryArray[extraVariableIndex];
-            extraVariableIndex ++;
 
         }
 
-        // 设置原有变量的goalParameterArray元素
+        // 设置其他的goalParameterArray元素
         for (Map.Entry<Variable, Double> entry : this.goal.getCombinationMap().entrySet()) {
             tempVariable = entry.getKey();
             tempValue = entry.getValue();
@@ -126,6 +127,26 @@ public class CPlex {
         Integer tempNewInnerVariableIndex;
         int beginIndex = 0;
         double tempNewInnerVariableCoefficient;
+        for (int i = 0; i < this.constrainList.size(); i++) {
+            if (this.constrainList.get(i).getConstrainTypeValue().equals(ConstrainType.EQ)) {
+                // 找到当前正系数变量，且该变量不能已经是其他约束表达式的基变量 todo
+                do {
+                    tempNewInnerVariableIndex = ArraysUtils.getFirstElementIndexWithValueMoreThanGivenValue(this.augmentCoefficientGoalMatrix[i], beginIndex, endIndex,  0.0);
+                    beginIndex = tempNewInnerVariableIndex + 1;
+                } while (BasicVariableEntry.containKey(this.basicVariableArray, tempNewInnerVariableIndex));
+                if (tempNewInnerVariableIndex < 0) {
+                    // 说明该等式矛盾，原线性规划无解
+                    throw new CPLException("Conflict for Equation " + String.valueOf(i));
+                }
+                tempNewInnerVariableCoefficient = this.augmentCoefficientGoalMatrix[i][tempNewInnerVariableIndex];
+                // 初等变化将改变量化为1
+                shrinkMatrixRow(i, tempNewInnerVariableCoefficient);
+                changeGoIntoVariableVectorToUnitVector(i, tempNewInnerVariableIndex);
+//                this.basicVariableArray[i] = tempNewInnerVariableIndex;
+//                this.basicVariableArray[i] = new BasicVariableEntry(tempNewInnerVariableIndex, this.goalVariableEntryArray[tempNewInnerVariableIndex]);
+                this.basicVariableArray[i] = this.goalVariableEntryArray[tempNewInnerVariableIndex];
+            }
+        }
         this.normalVariableSet = new HashSet<>();
         SetUtils.addSeriesIndexOfGivenData(this.normalVariableSet, this.goalVariableEntryArray, 0, endIndex);
         for (int i = 0; i < this.basicVariableArray.length; i++) {
@@ -159,21 +180,18 @@ public class CPlex {
     public void init() throws CPLException {
 //        this.realVariableSize = variableList.size();
         // 找出不等式加权的个数，如果为小于等于则记为1，大于等于记为2
-        int notEqualAddingVariableSize = 0;
-        int equationSize = 0;
+        int notEqualSize = 0;
         Integer tempConstrainType;
         for (Constrain constrain : this.constrainList) {
             tempConstrainType = constrain.getConstrainTypeValue();
             if (tempConstrainType.equals(ConstrainType.LEQ)) {
-                ++ notEqualAddingVariableSize;
+                ++ notEqualSize;
             } else if (tempConstrainType.equals(ConstrainType.GEQ)) {
-                notEqualAddingVariableSize += 2;
-            } else {
-                ++ equationSize;
+                notEqualSize += 2;
             }
         }
         // 初始化增广系数矩阵
-        initFirstCoefficientMatrixAndBasicVariableArray(equationSize, notEqualAddingVariableSize);
+        initFirstCoefficientMatrixAndBasicVariableArray(notEqualSize);
         initSecondEquationBasicVariablesArray();
 
     }

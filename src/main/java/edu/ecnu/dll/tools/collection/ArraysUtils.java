@@ -227,7 +227,7 @@ public class ArraysUtils {
     }
 
     public static int getFirstElementIndexWithValueMoreThanGivenValue(Double[] arr, int beginIndex, int endIndex, Double givenValue) {
-        for (int i = beginIndex; i <= arr.length; i++) {
+        for (int i = beginIndex; i <= endIndex; i++) {
             if (arr[i] > givenValue) {
                 return i;
             }
@@ -235,8 +235,11 @@ public class ArraysUtils {
         return -1;
     }
 
-    public static int findIndexOfObject(Integer[] arr, Integer obj) {
+    public static int findIndexOfGivenElement(Integer[] arr, Integer obj) {
         for (int i = 0; i < arr.length; i++) {
+            if (arr[i] == null) {
+                continue;
+            }
             if (arr[i].equals(obj)) {
                 return i;
             }
@@ -244,9 +247,12 @@ public class ArraysUtils {
         return -1;
     }
 
-    public static int findIndexOfObject(Map.Entry<Integer, ExtendDouble>[] arr, Integer obj) {
+    public static int findIndexOfGivenKey(Map.Entry<Integer, ExtendDouble>[] arr, Integer key) {
         for (int i = 0; i < arr.length; i++) {
-            if (arr[i].getKey().equals(obj)) {
+            if (arr[i] == null) {
+                continue;
+            }
+            if (arr[i].getKey().equals(key)) {
                 return i;
             }
         }

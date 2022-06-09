@@ -1,5 +1,7 @@
 package edu.ecnu.dll.cpl.struct;
 
+import edu.ecnu.dll.tools.collection.ArraysUtils;
+
 import java.util.Map;
 import java.util.Objects;
 
@@ -47,4 +49,13 @@ public class BasicVariableEntry implements Map.Entry<Integer, ExtendDouble>{
             arr[i] = new BasicVariableEntry(i, ExtendDouble.valueOf(0.0));
         }
     }
+
+
+    public static boolean containKey(Map.Entry<Integer, ExtendDouble>[] arr, Integer key) {
+        if (ArraysUtils.findIndexOfGivenKey(arr, key) < 0) {
+            return false;
+        }
+        return true;
+    }
+
 }

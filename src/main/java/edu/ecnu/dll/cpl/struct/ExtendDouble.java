@@ -1,5 +1,7 @@
 package edu.ecnu.dll.cpl.struct;
 
+import edu.ecnu.dll.cpl.Constant;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -49,7 +51,7 @@ public class ExtendDouble implements Comparable<ExtendDouble> {
     }
 
     public boolean isInfinity() {
-        if (Math.abs(this.coefficientOfM) < Math.pow(10,-6)) {
+        if (Math.abs(this.coefficientOfM) < Constant.DEFAULT_PRECISION) {
             return false;
         }
         return true;
@@ -114,7 +116,7 @@ public class ExtendDouble implements Comparable<ExtendDouble> {
     }
 
     public int compareTo(Double elem) {
-        if (Math.abs(this.coefficientOfM)>=Math.pow(10,-6)) {
+        if (Math.abs(this.coefficientOfM) >= Constant.DEFAULT_PRECISION) {
             return this.coefficientOfM.compareTo(0.0);
         }
         return this.constant.compareTo(elem);
