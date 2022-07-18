@@ -37,13 +37,21 @@ public class Goal {
         return goalType;
     }
 
-    public void normalizeToMaxEqualGoal() {
+    /**
+     * 将目标函数统一化为求最大值
+     * 如果原始目标函数为求最小值，则返回-1，原始目标函数为求最大值，则返回1
+     * @return
+     */
+    public int normalizeToMaxEqualGoal() {
+        int changeValue = 1;
         if (this.goalType.equals(GoalType.MIN)) {
             for (Map.Entry<Variable, Double> entry : combinationMap.entrySet()) {
                 entry.setValue(-entry.getValue());
             }
             this.goalType = GoalType.MAX;
+            changeValue = -1;
         }
+        return changeValue;
     }
 
     @Override

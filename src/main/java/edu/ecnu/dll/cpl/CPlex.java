@@ -15,6 +15,7 @@ public class CPlex {
     private List<Constrain> constrainList = null;
     // 保证这里的 goal 被形式化为 MAX 形式
     private Goal goal = null;
+    private Integer goalChangeValue = null;
     private Map.Entry<Integer, ExtendDouble>[] goalVariableEntryArray = null;
 
     private Boolean solveFlag;
@@ -218,15 +219,24 @@ public class CPlex {
 
     public void setGoal(Goal goal) {
         this.goal = goal;
-        this.goal.normalizeToMaxEqualGoal();
+        this.goalChangeValue = this.goal.normalizeToMaxEqualGoal();
     }
 
     private Integer getOuterBasicVariableIndex(Integer innerBasicIndex) {
         Double[] ratio = new Double[basicVariableArray.length];
+        Double tempDivisor = null;
         int bArrayIndex =  this.augmentCoefficientGoalMatrix[0].length - 1;
         for (int i = 0; i < ratio.length; i++) {
-            ratio[i] = this.augmentCoefficientGoalMatrix[i][bArrayIndex] / this.augmentCoefficientGoalMatrix[i][innerBasicIndex];
+            // 先判断分母是否为负(由于addConstrain已经保证了不等式和等式右侧为非负，即分子非负，因此只要保证分母非负即可)
+            tempDivisor = this.augmentCoefficientGoalMatrix[i][innerBasicIndex];
+            if (tempDivisor < 0) {
+                // 这里的-1.0是随便设置的，关键只要保证ratio值为负，以便后续被筛选掉
+                ratio[i] = -1.0;
+            } else {
+                ratio[i] = this.augmentCoefficientGoalMatrix[i][bArrayIndex] / this.augmentCoefficientGoalMatrix[i][innerBasicIndex];
+            }
         }
+
         int positionInBasicVariableArray = ArraysUtils.getDoubleMinValueIndexWithMinimalValueConstrain(ratio,0.0);
         return positionInBasicVariableArray;
     }
@@ -346,7 +356,7 @@ public class CPlex {
 //        int rowIndex = this.augmentCoefficientGoalMatrix.length - 1;
 //        int colIndex = this.augmentCoefficientGoalMatrix[0].length - 1;
 //        return this.augmentCoefficientGoalMatrix[rowIndex][colIndex];
-        ExtendDouble result = this.judgementNumberArray[this.judgementNumberArray.length-1].negative();
+        ExtendDouble result = this.judgementNumberArray[this.judgementNumberArray.length-1].negative().multiple(this.goalChangeValue * 1.0);
         if (result.isInfinity()) {
             return Double.MAX_VALUE;
         }

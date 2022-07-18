@@ -191,6 +191,24 @@ public class ArraysUtils {
         return resultIndex;
     }
 
+    /**
+     * 返回数组中严格大于 noLessThanValue 的最小值
+     * @param doubleArray
+     * @param noLessThanValue
+     * @return
+     */
+    public static int getDoubleMinValueIndexWithMinimalValueConstrainStrictly(Double[] doubleArray, Double noLessThanValue) {
+        int resultIndex = -1;
+        double resultValue = Double.MAX_VALUE;
+        for (int i = 0; i < doubleArray.length; i++) {
+            if (doubleArray[i] < resultValue && doubleArray[i] > noLessThanValue) {
+                resultValue = doubleArray[i];
+                resultIndex = i;
+            }
+        }
+        return resultIndex;
+    }
+
     public static Integer getDoubleMaxValueIndexInGivenIndexSet(Double[] arr, Set<Integer> givenIndexSet) {
         Double result = -Double.MAX_VALUE;
         Integer indexResult = -1;
